@@ -7,7 +7,7 @@ shopt -s dotglob
 . "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../lib/bin-env.sh"
 
 _lsdirs() {
-    find "$1" -mindepth 1 -maxdepth 1 -type d -printf '%P'
+    find "$1" -mindepth 1 -maxdepth 1 -type d -printf '%P\n'
 }
 
 __render-salt-roots() {
@@ -29,15 +29,15 @@ __render-file-roots() {
 file_roots:
   base:
 EOF
+    __render-salt-roots "$srv_roots_d/salt" | sed -r 's/^/    /'
 
 echo ""
 
-    __render-salt-roots "$srv_roots_d/salt"
     cat <<EOF
 pillar_roots:
   base:
 EOF
-    __render-pillar-roots "$srv_roots_d/pillar"
+    __render-pillar-roots "$srv_roots_d/pillar" | sed -r 's/^/    /'
     echo ""
 }
 

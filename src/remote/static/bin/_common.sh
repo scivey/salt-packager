@@ -21,6 +21,8 @@ salt-packager-remote::parse-forceable-args() {
 }
 
 __err-trace() {
+    # shellcheck source=./_tracing.sh
+    . "$SALTED_PKG__BIN_D/_tracing.sh"
     echo "ERROR" >&2
     echo "BASH_COMMAND: '${BASH_COMMAND}'" >&2
     __tracing-dump-stack

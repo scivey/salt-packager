@@ -9,7 +9,7 @@ if [[ -z "${SALT_PACKAGER__D+x}" ]]; then
         __sp_src="$0"
     fi
     SALT_PACKAGER__D=""
-    SALT_PACKAGER__D="$(dirname "$(realpath "$__sp_src")")"
+    SALT_PACKAGER__D="$(dirname "$(dirname "$(realpath "$__sp_src")")")"
     unset __sp_src
 fi
 
