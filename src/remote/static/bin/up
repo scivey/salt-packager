@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+__init-dirs(){
+    salt-packager-remote::enable-err-tracing
+    local is_force=false
+    salt-packager-remote::parse-forceable-args is_force "$@"
+    "$SALTED_PKG__BIN_D/init-dirs"
+    local venv_d="$SALTED_PKG__VENV_D"
+    local had_venv=false
+    if [[ -d "$venv_d" ]]; then
+        had_venv=true
+    fi
+    declare -a init_venv_call=(
+        "$SALTED_PKG__BIN_D/init-venv"
+    )
+    if [ "$is_force" = true ]; then
+        init_venv_call+=( "-f" )
+    fi
+    "${init_venv_call[@]}"
+    if [ "$is_force" = true ] || [ "$had_venv" = false ]; then
+        "$SALTED_PKG__BIN_D/init-salt"
+    fi
+}
+__init-dirs
+

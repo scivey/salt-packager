@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+__init-dirs(){
+    local scall="$SALTED_PKG__BIN_D/scall" 
+    "$scall" saltutil.sync_all
+    "$scall" state.apply salt_packager.first_run
+}
+__init-dirs
+

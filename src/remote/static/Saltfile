@@ -1,0 +1,4 @@
+salt-call:
+  config_dir: ./
+  local: true
+  retcode_passthrough: true

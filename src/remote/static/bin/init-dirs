@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+__init-dirs(){
+    local root_d="$SALTED_PKG__ROOT_D"
+    local sroot="$root_d/salt-root"
+    mkdir -p "$root_d/log" "$root_d/tmp" "$root_d/$sroot" "$sroot/extmod"
+    declare -a roles=('minion' 'master')
+    local role
+    for role in "${roles[@]}"; do
+        local role_d="$sroot/$role"
+        mkdir -p "$role_d/cache/salt" "$role_d/pki" "$role_d/log/salt" "$role_d/etc/salt"
+    done
+}
+__init-dirs
+

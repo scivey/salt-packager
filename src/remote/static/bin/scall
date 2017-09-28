@@ -1,0 +1,26 @@
+#!/bin/bash
+
+set -euo pipefail
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+
+
+_scall-inner() {
+    "$SALTED_PKG__VENV_D/bin/salt-call" --local -l info --state-output full --state-verbose True "$@"
+}
+__runit() {
+    pushd "$SALTED_PKG__ROOT_D" > /dev/null
+    local salt_path="$SALTED_PKG__VENV_D/bin/salt-call"
+    if [[ ! -e "$salt_path" ]]; then
+        "$SALTED_PKG__BIN_D/init-dirs"
+        "$SALTED_PKG__BIN_D/init-venv"
+    fi
+    _scall-inner "$@" 1> >( tee ./log/deploy.stdout ) 2> >( tee ./log/deploy.stderr >&2 )
+    popd > /dev/null
+}
+
+
+__runit "$@"
+
+

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+__init-dirs(){
+    "$SALTED_PKG__BIN_D/scall" state.apply "$@"
+}
+__init-dirs
+

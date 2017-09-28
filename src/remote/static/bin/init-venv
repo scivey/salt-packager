@@ -1,0 +1,186 @@
+#!/bin/bash
+
+set -euo pipefail
+# set -o functrace errtrace
+# shopt -s extdebug
+
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+HAVE_PIP_CACHE=false
+INIT_VENV_LOG_D="$SALTED_PKG__LOGS_D/init-venv"
+
+if [[ ! -v INIT_VENV_PIP_CACHE ]]; then
+    if [[ -v SALTED_PKG__PIP_CACHE_D ]]; then
+        INIT_VENV_PIP_CACHE="$SALTED_PKG__PIP_CACHE_D"
+        if [[ "$INIT_VENV_PIP_CACHE" != "" ]] && [[ -d "$INIT_VENV_PIP_CACHE" ]]; then
+            HAVE_PIP_CACHE=true
+        else
+            HAVE_PIP_CACHE=false
+            INIT_VENV_PIP_CACHE=""
+        fi
+    fi
+fi
+export INIT_VENV_PIP_CACHE
+if [[ "${INIT_VENV_PIP_CACHE:-""}" == "" ]]; then
+    HAVE_PIP_CACHE=false
+fi
+
+declare -ax __PIP_INSTALL_ARGS=(
+    'install'
+
+)
+if [ "$HAVE_PIP_CACHE" = true ]; then
+    __PIP_INSTALL_ARGS+=( '--cache-dir' "$INIT_VENV_PIP_CACHE" )
+fi
+__PIP_BIN="$SALTED_PKG__VENV_D/bin/pip"
+
+__pip-install() {
+    "${__PIP_BIN}" "${__PIP_INSTALL_ARGS[@]}" "$@"
+}
+
+__pip-install-named() {
+    local reqs_path="$1"; shift
+    local logs_name="$1"; shift
+    local log_d="$INIT_VENV_LOG_D/pip"
+    local pbase="${log_d}/${logs_name}"
+    local errlog="${pbase}.stderr.log"
+    local outlog="${pbase}.stdout.log"
+    mkdir -p "$log_d"
+    touch "$errlog" "$outlog"
+    __pip-install -r "$reqs_path" \
+            2> >( tee -a "$errlog" >&2 ) \
+        | tee -a "$outlog"
+}
+
+__safe-fname() {
+    local safe="$1"
+    safe="${safe//./_}"
+    safe="${safe//\//_}"
+    echo "$safe"
+}
+
+__install-one-mandatory() {
+    local fname="$1"
+    __pip-install-named "$SALTED_PKG__PIP_REQS_D/$fname" "$(__safe-fname "mandatory_${fname}")"
+}
+__install-one-extra() {
+    local fname="$1"
+    local lgname; lgname="$(__safe-fname "extra_${fname}")"
+    if ! __pip-install-named "$SALTED_PKG__PIP_REQS_D/extra/$fname" "$lgname"; then
+        {
+            printf "WARNING: installation of extra pip requirements" ;
+            printf '"%s" failed.\nContinuing anyway.' "$fname" ;
+            printf '  Check build logs under "%s".' "$INIT_VENV_LOG_D/pip/$lgname"
+        } >&2 ;
+    fi
+}
+
+__ls-file-basenames() {
+    find "$1" -mindepth 1 -maxdepth 1 -type f -printf '%P\n'
+}
+
+__sha256() {
+    local fin=""
+    if [[ $# -lt 1 ]] || [[ "$1" == "-" ]]; then
+        fin="/dev/stdin"
+    else
+        fin="$1"; shift
+    fi
+    sha256sum < "$fin" | cut -d ' ' -f 1
+}
+
+
+__ls-changed() {
+    local reqs_d="$1"; shift
+    local hash_d="$1"; shift
+    local prev_hash curr_hash
+    while read -r fname; do
+        hname="$(__safe-fname "$fname")"
+        prev_hash=""
+        if [[ -e "$hash_d/$hname" ]]; then
+            prev_hash="$(cat "$hash_d/$hname")"
+        fi
+        curr_hash="$(__sha256 "$reqs_d/$fname")"
+        if [[ "$curr_hash" == "$prev_hash" ]]; then
+            echo "no change to '$reqs_d/$fname'" >&2
+        else
+            echo "$fname" "$curr_hash"
+        fi
+    done < <(__ls-file-basenames "$reqs_d" )
+}
+
+__ls-all-with-hashes() {
+    local reqs_d="$1"; shift
+    local prev_hash curr_hash
+    while read -r fname; do
+        curr_hash="$(__sha256 "$reqs_d/$fname")"
+        echo "$fname" "$curr_hash"
+    done < <(__ls-file-basenames "$reqs_d" )
+}
+
+_sorted-keys() {
+    declare -n dref="$1"
+    local k
+    for k in "${!dref[@]}"; do
+        echo "$k"
+    done | sort -n
+}
+
+__init-venv() {
+    local is_force=false
+    salt-packager-remote::parse-forceable-args is_force "$@"
+    if [[ ! -d "$SALTED_PKG__VENV_D" ]]; then
+        virtualenv "$SALTED_PKG__VENV_D"
+    fi
+    local root_d="$SALTED_PKG__ROOT_D"
+    local log_d="$root_d/log/init-venv"
+    mkdir -p "$log_d"
+    declare -A needed_mandatory=()
+    declare -A needed_extra=()
+    local reqs_d="$SALTED_PKG__PIP_REQS_D"
+    local hash_d="$SALTED_PKG__HASH_D/init-venv"
+    local hash_mand_d="$hash_d/mandatory"
+    local hash_extra_d="$hash_d/extra"
+    mkdir -p "$hash_mand_d" "$hash_extra_d"
+
+    local ls_func="__ls-changed"
+    if [ "$is_force" = true ]; then
+        ls_func='__ls-all-with-hashes'
+    fi
+    local currf currhash
+    while read -r currf currhash; do
+        needed_mandatory[$currf]="$currhash"
+    done < <( "$ls_func" "$reqs_d" "$hash_mand_d" )
+
+    while read -r currf currhash; do
+        needed_extra[$currf]="$currhash"
+    done < <( "$ls_func" "$reqs_d/extra" "$hash_extra_d" )
+
+    while read -r currf; do
+        __install-one-mandatory "$currf"
+    done < <( _sorted-keys needed_mandatory )
+
+    while read -r currf; do
+        __install-one-extra "$currf"
+    done < <( _sorted-keys needed_extra )
+
+    local hname
+    for currf in "${!needed_mandatory[@]}"; do
+        currhash="${needed_mandatory[$currf]}"
+        hname="$(__safe-fname "$currf")"
+        echo -n "$currhash" > "$hash_mand_d/$hname"
+    done
+    for currf in "${!needed_extra[@]}"; do
+        currhash="${needed_extra[$currf]}"
+        hname="$(__safe-fname "$currf")"
+        echo -n "$currhash" > "$hash_extra_d/$hname"
+    done
+}
+
+__runit() {
+    # trap __err-trace 'ERR'
+    # salt-packager-remote::enable-err-tracing
+    __init-venv "$@"
+}
+__runit "$@"

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# shellcheck source=./_common.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_common.sh"
+
+__init-dirs(){
+    local scall="$SALTED_PKG__BIN_D/scall"
+    if [[ $# -gt 0 ]]; then
+        "$scall" state.apply "$@"
+    else
+        "$scall" state.highstate
+    fi
+}
+__init-dirs
+

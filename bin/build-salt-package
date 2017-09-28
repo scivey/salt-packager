@@ -1,0 +1,103 @@
+#!/bin/bash
+
+set -euo pipefail
+shopt -s dotglob
+
+# shellcheck source=./../lib/bin-env.sh
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../lib/bin-env.sh"
+
+_lsdirs() {
+    find "$1" -mindepth 1 -maxdepth 1 -type d -printf '%P'
+}
+
+__render-salt-roots() {
+    local dname
+    while read -r dname; do
+        echo "- './srv/salt/$dname'"
+    done < <( _lsdirs "$1" )
+}
+__render-pillar-roots() {
+    local dname
+    while read -r dname; do
+        echo "- './srv/pillar/$dname'"
+    done < <( _lsdirs "$1" )
+}
+
+__render-file-roots() {
+    local srv_roots_d="$1"
+    cat <<EOF
+file_roots:
+  base:
+EOF
+
+echo ""
+
+    __render-salt-roots "$srv_roots_d/salt"
+    cat <<EOF
+pillar_roots:
+  base:
+EOF
+    __render-pillar-roots "$srv_roots_d/pillar"
+    echo ""
+}
+
+
+__runit() {
+    declare -a root_dirs=()
+    local arg="" build_d=""
+    while [[ $# -gt 0 ]]; do
+        arg="$1"; shift
+        if [[ "$arg" == "-o" ]] || [[ "$arg" == "--out" ]]; then
+            build_d="$1"; shift
+        else
+            root_dirs+=( "$arg" )
+        fi
+    done
+    if [[ "$build_d" == "" ]]; then
+        build_d="$(pwd)/build"
+    fi
+    build_d="$(realpath "$build_d")"
+    local pack_root_d; pack_root_d="$build_d/salt-packager"
+    local tarpath="$build_d/salt-package.tar.gz"
+    local pack_d="$pack_root_d/bundle"
+    local pack_tmp_d="$pack_root_d/tmp"
+    local srv_d="$pack_d/srv"
+
+    local src_d="$SALT_PACKAGER__REMOTE_SRC_D"
+    root_dirs+=( "$src_d/extra_roots" )
+
+    declare -a base_static_dirs=(
+        "$src_d/static"
+        "$src_d/extra_base"
+    )
+    echo "root_dirs: '${root_dirs[*]}'" >&2
+    echo "base_static_dirs: '${base_static_dirs[*]}'" >&2
+    echo "build_d: '${build_d}'" >&2
+    echo "pack_d: '${pack_d}'" >&2
+    echo "pack_tmp_d: '${pack_tmp_d}'" >&2
+    echo "srv_d: '${srv_d}'" >&2
+
+    rm -rf "$pack_root_d" "$tarpath"
+    mkdir -p "$pack_d" "$srv_d" "$pack_tmp_d"
+    local dname
+    for dname in "${root_dirs[@]}"; do
+        cp -r "${dname}"/* "${srv_d}/"
+    done
+    for dname in "${base_static_dirs[@]}"; do
+        cp -r "$dname/"* "${pack_d}/"
+    done
+    local froots="$pack_tmp_d/file-roots"
+    __render-file-roots "$srv_d" > "$froots"
+    local src_conf_d="$src_d/conf"
+    declare -a confs=( master minion )
+    local one_conf
+    for one_conf in "${confs[@]}"; do
+        cat "${src_conf_d}/$one_conf" "$froots" > "$pack_d/$one_conf"
+    done
+    pushd "$pack_d" > /dev/null
+    tar czf "$tarpath" ./*
+    popd > /dev/null
+    echo "$tarpath"
+}
+
+__runit "$@"
